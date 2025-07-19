@@ -21,14 +21,40 @@ const extractors = {
       
       const html = await response.text();
       
-      // Extract video URL from HTML content
-      const videoUrlMatch = html.match(/["']([^"']*\.mp4[^"']*)["']/);
+      // Look for various video URL patterns in TeraBox
+      let videoUrl = '';
+      
+      // Try different patterns to find the video URL
+      const patterns = [
+        /"videoUrl":"([^"]+)"/,
+        /"video_url":"([^"]+)"/,
+        /"url":"([^"]*\.mp4[^"]*)"/,
+        /src="([^"]*\.mp4[^"]*)"/,
+        /https?:\/\/[^"'\s]*\.mp4[^"'\s]*/
+      ];
+      
+      for (const pattern of patterns) {
+        const match = html.match(pattern);
+        if (match && match[1]) {
+          videoUrl = match[1];
+          break;
+        }
+      }
+      
+      // If no direct video URL found, try to find download links
+      if (!videoUrl) {
+        const downloadMatch = html.match(/download[^"]*["']([^"']*\.mp4[^"']*)/i);
+        if (downloadMatch && downloadMatch[1]) {
+          videoUrl = downloadMatch[1];
+        }
+      }
+      
       const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
       
       return {
-        videoUrl: videoUrlMatch?.[1] || '',
-        title: titleMatch?.[1]?.trim() || 'TeraBox Video',
-        thumbnail: 'https://i.terabox.com/preview.jpg'
+        videoUrl: videoUrl || url, // Fallback to original URL if no direct video URL found
+        title: titleMatch?.[1]?.trim().replace(/&amp;/g, '&') || 'TeraBox Video',
+        thumbnail: videoUrl ? videoUrl.replace(/\.mp4.*$/, '.jpg') : 'https://i.terabox.com/preview.jpg'
       };
     } catch (error) {
       throw new Error(`TeraBox extraction failed: ${error.message}`);

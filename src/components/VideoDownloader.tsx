@@ -233,14 +233,28 @@ export function VideoDownloader() {
 
                     {videoDetails.thumbnail && (
                       <div className="relative overflow-hidden rounded-lg">
-                        <img
-                          src={videoDetails.thumbnail}
-                          alt="Video thumbnail"
-                          className="w-full h-48 object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                          <Play className="w-12 h-12 text-white opacity-80" />
-                        </div>
+                        {videoDetails.videoUrl && videoDetails.videoUrl !== videoDetails.thumbnail ? (
+                          <video
+                            src={videoDetails.videoUrl}
+                            poster={videoDetails.thumbnail}
+                            controls
+                            className="w-full h-48 object-cover"
+                            preload="metadata"
+                          >
+                            Your browser does not support the video tag.
+                          </video>
+                        ) : (
+                          <>
+                            <img
+                              src={videoDetails.thumbnail}
+                              alt="Video thumbnail"
+                              className="w-full h-48 object-cover"
+                            />
+                            <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                              <Play className="w-12 h-12 text-white opacity-80" />
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
 
