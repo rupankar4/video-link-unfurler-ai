@@ -23,7 +23,7 @@ const extractors = {
       
       // Extract video URL from HTML content
       const videoUrlMatch = html.match(/["']([^"']*\.mp4[^"']*)["']/);
-      const titleMatch = html.match(/<title[^>]*>([^<]+)</title>/i);
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
       
       return {
         videoUrl: videoUrlMatch?.[1] || '',
