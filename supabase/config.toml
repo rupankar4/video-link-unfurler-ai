@@ -1,1 +1,4 @@
 project_id = "gubvtfwbcjogospapomc"
+
+[functions.fetch-video]
+verify_jwt = false

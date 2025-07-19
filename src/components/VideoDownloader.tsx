@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import { Download, Link, Play, Loader2, CheckCircle, AlertCircle, Globe } from 'lucide-react';
 
 interface VideoDetails {
@@ -80,19 +81,18 @@ export function VideoDownloader() {
         return;
       }
 
-      // Simulate API call - replace with your actual implementation
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Mock response - replace with actual API call
-      const mockResponse: VideoDetails = {
-        success: true,
-        platform,
-        title: `Sample Video from ${platform.charAt(0).toUpperCase() + platform.slice(1)}`,
-        thumbnail: `https://picsum.photos/400/300?random=${Date.now()}`,
-        videoUrl: url,
-      };
+      // Call the Supabase Edge Function
+      const { data, error } = await supabase.functions.invoke('fetch-video', {
+        body: { url }
+      });
 
-      setVideoDetails(mockResponse);
+      if (error) {
+        throw new Error(error.message || 'Failed to fetch video details');
+      }
+
+      const response = data as VideoDetails;
+
+      setVideoDetails(response);
       setProgress(100);
       
       toast({
