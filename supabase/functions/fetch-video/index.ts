@@ -14,65 +14,56 @@ const extractors = {
   terabox: async (url: string): Promise<Partial<VideoDetails>> => {
     try {
       console.log('Fetching TeraBox page:', url);
+      
+      // For TeraBox, we'll extract the file info and create a proper thumbnail
       const response = await fetch(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1'
         }
       });
       
       const html = await response.text();
       console.log('HTML response length:', html.length);
       
-      let videoUrl = '';
-      let thumbnail = '';
+      // Extract title from page
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+      let title = titleMatch?.[1]?.trim().replace(/&amp;/g, '&') || 'TeraBox Video';
       
-      // Try to extract the file ID from the URL for thumbnail
+      // Clean up the title by removing TeraBox suffix
+      title = title.replace(/\s*-\s*Share Files Online.*$/i, '').trim();
+      
+      // Extract file ID from URL for better thumbnail
       const fileIdMatch = url.match(/\/s\/([a-zA-Z0-9_-]+)/);
       const fileId = fileIdMatch?.[1];
       
-      // Generate a better thumbnail URL if we have file ID
-      if (fileId) {
-        thumbnail = `https://thumbnail.teraboxapp.com/thumbnail?fid=${fileId}&type=M&ismp4=1`;
-      }
+      // Since TeraBox doesn't provide direct video URLs easily,
+      // we'll return the original URL and a proper thumbnail
+      let thumbnail = 'https://via.placeholder.com/400x300/6366f1/white?text=TeraBox+Video';
       
-      // Look for download links in the HTML
-      const downloadPatterns = [
-        // Look for download buttons or links
-        /href="([^"]*download[^"]*\.mp4[^"]*)"/gi,
-        /data-url="([^"]*\.mp4[^"]*)"/gi,
-        // Look for embedded video sources
-        /"([^"]*cdn[^"]*\.mp4[^"]*)"/gi,
-        /"([^"]*terabox[^"]*\.mp4[^"]*)"/gi,
-        // Look for streaming URLs
-        /stream[^"]*["']([^"']*\.mp4[^"']*)/gi
-      ];
-      
-      for (const pattern of downloadPatterns) {
-        const matches = Array.from(html.matchAll(pattern));
-        for (const match of matches) {
-          const potentialUrl = match[1];
-          if (potentialUrl && potentialUrl.includes('.mp4') && !potentialUrl.includes('placeholder')) {
-            videoUrl = potentialUrl;
-            console.log('Found potential video URL:', videoUrl);
+      // Try to find any image references in the HTML for thumbnail
+      const imgMatches = html.match(/<img[^>]*src="([^"]*)"[^>]*>/gi);
+      if (imgMatches) {
+        for (const imgMatch of imgMatches) {
+          const srcMatch = imgMatch.match(/src="([^"]*)"/);
+          if (srcMatch && srcMatch[1] && !srcMatch[1].includes('placeholder') && !srcMatch[1].includes('icon')) {
+            thumbnail = srcMatch[1];
             break;
           }
         }
-        if (videoUrl) break;
       }
       
-      // If no direct URL found, create a download link
-      if (!videoUrl && fileId) {
-        // TeraBox download URL pattern
-        videoUrl = `https://www.terabox.com/api/download?fid=${fileId}&type=M`;
-      }
-      
-      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-      const cleanTitle = titleMatch?.[1]?.trim().replace(/&amp;/g, '&').replace(' - Share Files Online & Send Larges Files with TeraBox', '') || 'TeraBox Video';
-      
+      // For TeraBox, we return null for videoUrl since direct streaming isn't easily available
+      // The UI will show thumbnail with download option instead
       return {
-        videoUrl: videoUrl || url,
-        title: cleanTitle,
-        thumbnail: thumbnail || 'https://via.placeholder.com/400x300/6366f1/white?text=Video+Preview'
+        videoUrl: null, // Don't return unplayable URL
+        title: title,
+        thumbnail: thumbnail
       };
     } catch (error) {
       throw new Error(`TeraBox extraction failed: ${error.message}`);

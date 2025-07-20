@@ -231,8 +231,8 @@ export function VideoDownloader() {
                       </div>
                     </div>
 
-                    <div className="relative overflow-hidden rounded-lg">
-                      {videoDetails.videoUrl && !videoDetails.videoUrl.includes('terabox.com/s/') ? (
+                    <div className="relative overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800">
+                      {videoDetails.videoUrl ? (
                         <video
                           src={videoDetails.videoUrl}
                           poster={videoDetails.thumbnail}
@@ -241,26 +241,25 @@ export function VideoDownloader() {
                           preload="metadata"
                           onError={(e) => {
                             console.error('Video failed to load:', videoDetails.videoUrl);
-                            // Fallback to thumbnail if video fails
-                            e.currentTarget.style.display = 'none';
                           }}
                         >
                           Your browser does not support the video tag.
                         </video>
                       ) : (
-                        <>
+                        <div className="w-full h-48 flex flex-col items-center justify-center">
                           <img
                             src={videoDetails.thumbnail || 'https://via.placeholder.com/400x300/6366f1/white?text=Video+Preview'}
                             alt="Video thumbnail"
-                            className="w-full h-48 object-cover"
+                            className="w-full h-32 object-cover rounded mb-2"
                             onError={(e) => {
                               e.currentTarget.src = 'https://via.placeholder.com/400x300/6366f1/white?text=Video+Preview';
                             }}
                           />
-                          <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                            <Play className="w-12 h-12 text-white opacity-80" />
+                          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                            <Play className="w-4 h-4" />
+                            <span>Preview not available for this platform</span>
                           </div>
-                        </>
+                        </div>
                       )}
                     </div>
 
