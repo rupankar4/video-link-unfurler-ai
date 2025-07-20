@@ -15,14 +15,12 @@ const extractors = {
     try {
       console.log('Fetching TeraBox page:', url);
       
-      // For TeraBox, we'll extract the file info and create a proper thumbnail
       const response = await fetch(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'DNT': '1',
+          'Referer': 'https://www.terabox.com/',
           'Connection': 'keep-alive',
           'Upgrade-Insecure-Requests': '1'
         }
@@ -31,37 +29,93 @@ const extractors = {
       const html = await response.text();
       console.log('HTML response length:', html.length);
       
-      // Extract title from page
+      // Extract title and clean it
       const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
       let title = titleMatch?.[1]?.trim().replace(/&amp;/g, '&') || 'TeraBox Video';
-      
-      // Clean up the title by removing TeraBox suffix
       title = title.replace(/\s*-\s*Share Files Online.*$/i, '').trim();
       
-      // Extract file ID from URL for better thumbnail
+      // Extract file ID from URL
       const fileIdMatch = url.match(/\/s\/([a-zA-Z0-9_-]+)/);
       const fileId = fileIdMatch?.[1];
       
-      // Since TeraBox doesn't provide direct video URLs easily,
-      // we'll return the original URL and a proper thumbnail
-      let thumbnail = 'https://via.placeholder.com/400x300/6366f1/white?text=TeraBox+Video';
+      // Try to extract direct video URL from various sources
+      let videoUrl = null;
+      let thumbnail = null;
       
-      // Try to find any image references in the HTML for thumbnail
-      const imgMatches = html.match(/<img[^>]*src="([^"]*)"[^>]*>/gi);
-      if (imgMatches) {
-        for (const imgMatch of imgMatches) {
-          const srcMatch = imgMatch.match(/src="([^"]*)"/);
-          if (srcMatch && srcMatch[1] && !srcMatch[1].includes('placeholder') && !srcMatch[1].includes('icon')) {
+      // Look for JSON data containing file info
+      const jsonMatches = html.match(/window\.yunData\s*=\s*({[^}]+})/);
+      if (jsonMatches) {
+        try {
+          const yunData = JSON.parse(jsonMatches[1]);
+          if (yunData.file_list && yunData.file_list[0]) {
+            const fileInfo = yunData.file_list[0];
+            if (fileInfo.dlink) {
+              videoUrl = fileInfo.dlink;
+              console.log('Found direct link:', videoUrl);
+            }
+          }
+        } catch (e) {
+          console.log('Failed to parse yunData:', e);
+        }
+      }
+      
+      // Alternative: Look for API endpoints in script tags
+      if (!videoUrl) {
+        const apiMatches = html.match(/api\/download\?[^"']+/g);
+        if (apiMatches && apiMatches[0]) {
+          videoUrl = `https://www.terabox.com/${apiMatches[0]}`;
+          console.log('Found API download link:', videoUrl);
+        }
+      }
+      
+      // Try to extract thumbnail from preview images
+      const thumbMatches = html.match(/thumb_url["']?\s*:\s*["']([^"']+)["']/i);
+      if (thumbMatches && thumbMatches[1]) {
+        thumbnail = thumbMatches[1];
+      } else {
+        // Look for any preview images
+        const imgMatches = html.match(/<img[^>]*src="([^"]*preview[^"]*)"[^>]*>/gi);
+        if (imgMatches && imgMatches[0]) {
+          const srcMatch = imgMatches[0].match(/src="([^"]*)"/);
+          if (srcMatch && srcMatch[1]) {
             thumbnail = srcMatch[1];
-            break;
           }
         }
       }
       
-      // For TeraBox, we return null for videoUrl since direct streaming isn't easily available
-      // The UI will show thumbnail with download option instead
+      // If no direct video URL found, try to construct download URL
+      if (!videoUrl && fileId) {
+        // Attempt to use TeraBox's download API
+        try {
+          const downloadResponse = await fetch(`https://www.terabox.com/api/download?shareid=${fileId}&uk=0&primaryid=0&fid=0`, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Referer': url,
+              'Accept': 'application/json'
+            }
+          });
+          
+          if (downloadResponse.ok) {
+            const downloadData = await downloadResponse.json();
+            if (downloadData.errno === 0 && downloadData.list && downloadData.list[0]) {
+              videoUrl = downloadData.list[0].dlink;
+              console.log('Found download API link:', videoUrl);
+            }
+          }
+        } catch (e) {
+          console.log('Download API failed:', e);
+        }
+      }
+      
+      // Fallback thumbnail if none found
+      if (!thumbnail) {
+        thumbnail = 'https://via.placeholder.com/400x300/6366f1/white?text=TeraBox+Video';
+      }
+      
+      console.log('Extraction result:', { videoUrl, title, thumbnail });
+      
       return {
-        videoUrl: null, // Don't return unplayable URL
+        videoUrl: videoUrl,
         title: title,
         thumbnail: thumbnail
       };
