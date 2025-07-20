@@ -231,32 +231,38 @@ export function VideoDownloader() {
                       </div>
                     </div>
 
-                    {videoDetails.thumbnail && (
-                      <div className="relative overflow-hidden rounded-lg">
-                        {videoDetails.videoUrl && videoDetails.videoUrl !== videoDetails.thumbnail ? (
-                          <video
-                            src={videoDetails.videoUrl}
-                            poster={videoDetails.thumbnail}
-                            controls
+                    <div className="relative overflow-hidden rounded-lg">
+                      {videoDetails.videoUrl && !videoDetails.videoUrl.includes('terabox.com/s/') ? (
+                        <video
+                          src={videoDetails.videoUrl}
+                          poster={videoDetails.thumbnail}
+                          controls
+                          className="w-full h-48 object-cover"
+                          preload="metadata"
+                          onError={(e) => {
+                            console.error('Video failed to load:', videoDetails.videoUrl);
+                            // Fallback to thumbnail if video fails
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        >
+                          Your browser does not support the video tag.
+                        </video>
+                      ) : (
+                        <>
+                          <img
+                            src={videoDetails.thumbnail || 'https://via.placeholder.com/400x300/6366f1/white?text=Video+Preview'}
+                            alt="Video thumbnail"
                             className="w-full h-48 object-cover"
-                            preload="metadata"
-                          >
-                            Your browser does not support the video tag.
-                          </video>
-                        ) : (
-                          <>
-                            <img
-                              src={videoDetails.thumbnail}
-                              alt="Video thumbnail"
-                              className="w-full h-48 object-cover"
-                            />
-                            <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                              <Play className="w-12 h-12 text-white opacity-80" />
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
+                            onError={(e) => {
+                              e.currentTarget.src = 'https://via.placeholder.com/400x300/6366f1/white?text=Video+Preview';
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                            <Play className="w-12 h-12 text-white opacity-80" />
+                          </div>
+                        </>
+                      )}
+                    </div>
 
                     <div className="flex gap-3">
                       <Button
