@@ -34,80 +34,95 @@ const extractors = {
       let title = titleMatch?.[1]?.trim().replace(/&amp;/g, '&') || 'TeraBox Video';
       title = title.replace(/\s*-\s*Share Files Online.*$/i, '').trim();
       
-      // Extract file ID from URL
-      const fileIdMatch = url.match(/\/s\/([a-zA-Z0-9_-]+)/);
-      const fileId = fileIdMatch?.[1];
-      
-      // Try to extract direct video URL from various sources
       let videoUrl = null;
       let thumbnail = null;
       
-      // Look for JSON data containing file info
-      const jsonMatches = html.match(/window\.yunData\s*=\s*({[^}]+})/);
-      if (jsonMatches) {
-        try {
-          const yunData = JSON.parse(jsonMatches[1]);
-          if (yunData.file_list && yunData.file_list[0]) {
-            const fileInfo = yunData.file_list[0];
-            if (fileInfo.dlink) {
-              videoUrl = fileInfo.dlink;
-              console.log('Found direct link:', videoUrl);
+      // Method 1: Look for videoInfo in script tags (similar to Puppeteer approach)
+      const scriptMatches = html.match(/<script[^>]*>(.*?)<\/script>/gis);
+      if (scriptMatches) {
+        for (const script of scriptMatches) {
+          const scriptContent = script.replace(/<\/?script[^>]*>/gi, '');
+          
+          // Look for videoInfo patterns
+          if (scriptContent.includes('videoInfo') || scriptContent.includes('playUrl')) {
+            console.log('Found videoInfo script');
+            
+            // Extract playUrl pattern
+            const playUrlMatch = scriptContent.match(/"playUrl"\s*:\s*"(https:[^"]+\.mp4[^"]*)"/);
+            if (playUrlMatch) {
+              videoUrl = decodeURIComponent(playUrlMatch[1]);
+              console.log('Found playUrl:', videoUrl);
+              break;
             }
+            
+            // Alternative patterns
+            const altPatterns = [
+              /"url"\s*:\s*"(https:[^"]+\.mp4[^"]*)"/,
+              /"dlink"\s*:\s*"(https:[^"]+\.mp4[^"]*)"/,
+              /"download_url"\s*:\s*"(https:[^"]+\.mp4[^"]*)"/
+            ];
+            
+            for (const pattern of altPatterns) {
+              const match = scriptContent.match(pattern);
+              if (match) {
+                videoUrl = decodeURIComponent(match[1]);
+                console.log('Found video URL with pattern:', videoUrl);
+                break;
+              }
+            }
+            
+            if (videoUrl) break;
+          }
+        }
+      }
+      
+      // Method 2: Look for file data in yunData or similar
+      const yunDataMatch = html.match(/yunData\s*=\s*({[^}]+})/);
+      if (!videoUrl && yunDataMatch) {
+        try {
+          const yunData = JSON.parse(yunDataMatch[1]);
+          if (yunData.file_list && yunData.file_list[0] && yunData.file_list[0].dlink) {
+            videoUrl = yunData.file_list[0].dlink;
+            console.log('Found yunData link:', videoUrl);
           }
         } catch (e) {
           console.log('Failed to parse yunData:', e);
         }
       }
       
-      // Alternative: Look for API endpoints in script tags
+      // Method 3: Look for any .mp4 URLs in the HTML
       if (!videoUrl) {
-        const apiMatches = html.match(/api\/download\?[^"']+/g);
-        if (apiMatches && apiMatches[0]) {
-          videoUrl = `https://www.terabox.com/${apiMatches[0]}`;
-          console.log('Found API download link:', videoUrl);
-        }
-      }
-      
-      // Try to extract thumbnail from preview images
-      const thumbMatches = html.match(/thumb_url["']?\s*:\s*["']([^"']+)["']/i);
-      if (thumbMatches && thumbMatches[1]) {
-        thumbnail = thumbMatches[1];
-      } else {
-        // Look for any preview images
-        const imgMatches = html.match(/<img[^>]*src="([^"]*preview[^"]*)"[^>]*>/gi);
-        if (imgMatches && imgMatches[0]) {
-          const srcMatch = imgMatches[0].match(/src="([^"]*)"/);
-          if (srcMatch && srcMatch[1]) {
-            thumbnail = srcMatch[1];
+        const mp4Matches = html.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/g);
+        if (mp4Matches && mp4Matches.length > 0) {
+          // Filter out obvious non-video URLs
+          const validMp4 = mp4Matches.find(url => 
+            !url.includes('placeholder') && 
+            !url.includes('sample') && 
+            url.length > 50 // Likely to be a real download link
+          );
+          if (validMp4) {
+            videoUrl = validMp4;
+            console.log('Found mp4 URL:', videoUrl);
           }
         }
       }
       
-      // If no direct video URL found, try to construct download URL
-      if (!videoUrl && fileId) {
-        // Attempt to use TeraBox's download API
-        try {
-          const downloadResponse = await fetch(`https://www.terabox.com/api/download?shareid=${fileId}&uk=0&primaryid=0&fid=0`, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-              'Referer': url,
-              'Accept': 'application/json'
-            }
-          });
-          
-          if (downloadResponse.ok) {
-            const downloadData = await downloadResponse.json();
-            if (downloadData.errno === 0 && downloadData.list && downloadData.list[0]) {
-              videoUrl = downloadData.list[0].dlink;
-              console.log('Found download API link:', videoUrl);
-            }
-          }
-        } catch (e) {
-          console.log('Download API failed:', e);
+      // Extract thumbnail
+      const thumbPatterns = [
+        /thumb_url["']?\s*:\s*["']([^"']+)["']/i,
+        /"thumbnail"\s*:\s*"([^"]+)"/i,
+        /"cover"\s*:\s*"([^"]+)"/i
+      ];
+      
+      for (const pattern of thumbPatterns) {
+        const match = html.match(pattern);
+        if (match && match[1]) {
+          thumbnail = match[1];
+          break;
         }
       }
       
-      // Fallback thumbnail if none found
+      // Fallback thumbnail
       if (!thumbnail) {
         thumbnail = 'https://via.placeholder.com/400x300/6366f1/white?text=TeraBox+Video';
       }
