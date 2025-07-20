@@ -13,6 +13,7 @@ interface VideoDetails {
 const extractors = {
   terabox: async (url: string): Promise<Partial<VideoDetails>> => {
     try {
+      console.log('Fetching TeraBox page:', url);
       const response = await fetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -20,41 +21,70 @@ const extractors = {
       });
       
       const html = await response.text();
+      console.log('HTML response length:', html.length);
       
-      // Look for various video URL patterns in TeraBox
+      // TeraBox often uses JavaScript variables to store file info
       let videoUrl = '';
       
-      // Try different patterns to find the video URL
+      // Look for common TeraBox patterns in the HTML/JS
       const patterns = [
-        /"videoUrl":"([^"]+)"/,
+        // Direct video URLs
+        /https?:\/\/[^"'\s]*\.terabox[^"'\s]*\.mp4[^"'\s]*/g,
+        /https?:\/\/[^"'\s]*dubox[^"'\s]*\.mp4[^"'\s]*/g,
+        // JSON data patterns
+        /"dlink":"([^"]*\.mp4[^"]*)"/,
         /"video_url":"([^"]+)"/,
-        /"url":"([^"]*\.mp4[^"]*)"/,
-        /src="([^"]*\.mp4[^"]*)"/,
-        /https?:\/\/[^"'\s]*\.mp4[^"'\s]*/
+        /"server_filename":"[^"]*\.mp4"/,
+        // JavaScript variable patterns
+        /window\.yunData\s*=.*?"dlink":"([^"]*\.mp4[^"]*)"/s,
+        /fileInfo.*?"dlink":"([^"]*\.mp4[^"]*)"/s
       ];
       
       for (const pattern of patterns) {
-        const match = html.match(pattern);
-        if (match && match[1]) {
-          videoUrl = match[1];
-          break;
+        const matches = html.match(pattern);
+        if (matches) {
+          if (pattern.flags?.includes('g')) {
+            // For global patterns, find the first .mp4 URL
+            for (const match of matches) {
+              if (match.includes('.mp4')) {
+                videoUrl = match;
+                break;
+              }
+            }
+          } else {
+            videoUrl = matches[1] || matches[0];
+          }
+          if (videoUrl) {
+            console.log('Found video URL with pattern:', pattern, 'URL:', videoUrl);
+            break;
+          }
         }
       }
       
-      // If no direct video URL found, try to find download links
-      if (!videoUrl) {
-        const downloadMatch = html.match(/download[^"]*["']([^"']*\.mp4[^"']*)/i);
-        if (downloadMatch && downloadMatch[1]) {
-          videoUrl = downloadMatch[1];
+      // Clean up the URL if found
+      if (videoUrl) {
+        // Decode URL if it's encoded
+        try {
+          videoUrl = decodeURIComponent(videoUrl);
+        } catch (e) {
+          // If decoding fails, use original
+        }
+        
+        // Remove any trailing characters that might not be part of the URL
+        videoUrl = videoUrl.split('&')[0].split('?')[0];
+        if (!videoUrl.endsWith('.mp4')) {
+          videoUrl += '.mp4';
         }
       }
       
       const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
       
+      // For TeraBox, if we can't extract direct video URL, return null videoUrl
+      // so the UI shows thumbnail instead of trying to play the sharing page
       return {
-        videoUrl: videoUrl || url, // Fallback to original URL if no direct video URL found
+        videoUrl: videoUrl && videoUrl !== url ? videoUrl : null,
         title: titleMatch?.[1]?.trim().replace(/&amp;/g, '&') || 'TeraBox Video',
-        thumbnail: videoUrl ? videoUrl.replace(/\.mp4.*$/, '.jpg') : 'https://i.terabox.com/preview.jpg'
+        thumbnail: 'https://via.placeholder.com/400x300/1f2937/white?text=TeraBox+Video'
       };
     } catch (error) {
       throw new Error(`TeraBox extraction failed: ${error.message}`);
