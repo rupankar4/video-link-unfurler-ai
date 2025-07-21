@@ -114,13 +114,31 @@ export function VideoDownloader() {
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (videoDetails?.videoUrl) {
-      toast({
-        title: "Download Started",
-        description: "Your video download has begun",
-      });
-      // Implement actual download logic here
+      try {
+        // Create a temporary link element for download
+        const link = document.createElement('a');
+        link.href = videoDetails.videoUrl;
+        link.download = videoDetails.title || 'video.mp4';
+        link.target = '_blank';
+        
+        // Trigger download
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        toast({
+          title: "Download Started",
+          description: "Your video download has begun",
+        });
+      } catch (error) {
+        toast({
+          title: "Download Failed",
+          description: "Unable to download the video. You can try opening the video URL directly.",
+          variant: "destructive"
+        });
+      }
     }
   };
 
@@ -233,16 +251,23 @@ export function VideoDownloader() {
 
                     <div className="relative overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800">
                       {videoDetails.videoUrl ? (
-                        <video
-                          src={videoDetails.videoUrl}
+                        <video 
+                          controls 
+                          autoPlay={false}
+                          width="100%"
+                          className="w-full h-auto max-h-96 rounded-lg"
                           poster={videoDetails.thumbnail}
-                          controls
-                          className="w-full h-48 object-cover"
                           preload="metadata"
                           onError={(e) => {
                             console.error('Video failed to load:', videoDetails.videoUrl);
+                            toast({
+                              title: "Video Load Error",
+                              description: "Unable to preview video, but download should still work",
+                              variant: "destructive"
+                            });
                           }}
                         >
+                          <source src={videoDetails.videoUrl} type="video/mp4" />
                           Your browser does not support the video tag.
                         </video>
                       ) : (
@@ -257,7 +282,7 @@ export function VideoDownloader() {
                           />
                           <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                             <Play className="w-4 h-4" />
-                            <span>Preview not available for this platform</span>
+                            <span>Preview not available - Direct download available</span>
                           </div>
                         </div>
                       )}
