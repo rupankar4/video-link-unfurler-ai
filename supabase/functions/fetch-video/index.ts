@@ -37,73 +37,156 @@ const extractors = {
       let videoUrl = null;
       let thumbnail = null;
       
-      // Method 1: Look for videoInfo in script tags (similar to Puppeteer approach)
+      // Enhanced script parsing with more comprehensive patterns
       const scriptMatches = html.match(/<script[^>]*>(.*?)<\/script>/gis);
       if (scriptMatches) {
-        for (const script of scriptMatches) {
+        console.log(`Found ${scriptMatches.length} script tags`);
+        
+        for (let i = 0; i < scriptMatches.length; i++) {
+          const script = scriptMatches[i];
           const scriptContent = script.replace(/<\/?script[^>]*>/gi, '');
           
-          // Look for videoInfo patterns
-          if (scriptContent.includes('videoInfo') || scriptContent.includes('playUrl')) {
-            console.log('Found videoInfo script');
+          // Log scripts that might contain video data
+          if (scriptContent.includes('videoInfo') || 
+              scriptContent.includes('playUrl') ||
+              scriptContent.includes('dlink') ||
+              scriptContent.includes('file_list') ||
+              scriptContent.includes('.mp4')) {
+            console.log(`Analyzing script ${i + 1}: Contains potential video data`);
+          }
+          
+          // Enhanced pattern matching
+          const videoPatterns = [
+            // Direct playUrl patterns
+            /"playUrl"\s*:\s*"([^"]+)"/g,
+            /"play_url"\s*:\s*"([^"]+)"/g,
             
-            // Extract playUrl pattern
-            const playUrlMatch = scriptContent.match(/"playUrl"\s*:\s*"(https:[^"]+\.mp4[^"]*)"/);
-            if (playUrlMatch) {
-              videoUrl = decodeURIComponent(playUrlMatch[1]);
-              console.log('Found playUrl:', videoUrl);
-              break;
-            }
+            // Download link patterns
+            /"dlink"\s*:\s*"([^"]+)"/g,
+            /"download_url"\s*:\s*"([^"]+)"/g,
+            /"real_link"\s*:\s*"([^"]+)"/g,
             
-            // Alternative patterns
-            const altPatterns = [
-              /"url"\s*:\s*"(https:[^"]+\.mp4[^"]*)"/,
-              /"dlink"\s*:\s*"(https:[^"]+\.mp4[^"]*)"/,
-              /"download_url"\s*:\s*"(https:[^"]+\.mp4[^"]*)"/
-            ];
+            // Generic URL patterns
+            /"url"\s*:\s*"(https?:\/\/[^"]*\.mp4[^"]*)"/g,
+            /"src"\s*:\s*"(https?:\/\/[^"]*\.mp4[^"]*)"/g,
             
-            for (const pattern of altPatterns) {
-              const match = scriptContent.match(pattern);
-              if (match) {
-                videoUrl = decodeURIComponent(match[1]);
-                console.log('Found video URL with pattern:', videoUrl);
-                break;
+            // TeraBox specific patterns
+            /"video_url"\s*:\s*"([^"]+)"/g,
+            /"stream_url"\s*:\s*"([^"]+)"/g,
+            
+            // CDN patterns
+            /https?:\/\/[a-zA-Z0-9.-]+\.terabox[^"'\s]*\.mp4[^"'\s]*/g,
+            /https?:\/\/[a-zA-Z0-9.-]+\.dubox[^"'\s]*\.mp4[^"'\s]*/g,
+            /https?:\/\/[a-zA-Z0-9.-]+\.baidupcs[^"'\s]*\.mp4[^"'\s]*/g,
+          ];
+          
+          for (const pattern of videoPatterns) {
+            const matches = [...scriptContent.matchAll(pattern)];
+            for (const match of matches) {
+              let candidateUrl = match[1];
+              
+              // Clean up the URL
+              if (candidateUrl) {
+                candidateUrl = candidateUrl.replace(/\\u0026/g, '&').replace(/\\"/g, '"');
+                candidateUrl = decodeURIComponent(candidateUrl);
+                
+                // Validate it's a proper video URL
+                if (candidateUrl.includes('.mp4') && 
+                    candidateUrl.startsWith('http') &&
+                    candidateUrl.length > 30 &&
+                    !candidateUrl.includes('placeholder')) {
+                  
+                  videoUrl = candidateUrl;
+                  console.log('Found video URL with pattern:', pattern.source.slice(0, 50) + '...');
+                  console.log('Video URL:', videoUrl);
+                  break;
+                }
               }
             }
-            
             if (videoUrl) break;
           }
+          
+          if (videoUrl) break;
         }
       }
       
-      // Method 2: Look for file data in yunData or similar
-      const yunDataMatch = html.match(/yunData\s*=\s*({[^}]+})/);
-      if (!videoUrl && yunDataMatch) {
-        try {
-          const yunData = JSON.parse(yunDataMatch[1]);
-          if (yunData.file_list && yunData.file_list[0] && yunData.file_list[0].dlink) {
-            videoUrl = yunData.file_list[0].dlink;
-            console.log('Found yunData link:', videoUrl);
-          }
-        } catch (e) {
-          console.log('Failed to parse yunData:', e);
-        }
-      }
-      
-      // Method 3: Look for any .mp4 URLs in the HTML
+      // Method 2: Enhanced yunData parsing
       if (!videoUrl) {
-        const mp4Matches = html.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/g);
-        if (mp4Matches && mp4Matches.length > 0) {
-          // Filter out obvious non-video URLs
-          const validMp4 = mp4Matches.find(url => 
-            !url.includes('placeholder') && 
-            !url.includes('sample') && 
-            url.length > 50 // Likely to be a real download link
-          );
-          if (validMp4) {
-            videoUrl = validMp4;
-            console.log('Found mp4 URL:', videoUrl);
+        const yunDataPatterns = [
+          /yunData\s*=\s*(\{.*?\})/s,
+          /window\.yunData\s*=\s*(\{.*?\})/s,
+          /var\s+yunData\s*=\s*(\{.*?\})/s,
+        ];
+        
+        for (const pattern of yunDataPatterns) {
+          const match = html.match(pattern);
+          if (match) {
+            try {
+              const yunData = JSON.parse(match[1]);
+              console.log('Found yunData object');
+              
+              // Look for video URLs in various places in yunData
+              if (yunData.file_list && Array.isArray(yunData.file_list)) {
+                for (const file of yunData.file_list) {
+                  if (file.dlink || file.download_url || file.real_link) {
+                    videoUrl = file.dlink || file.download_url || file.real_link;
+                    console.log('Found video URL in yunData.file_list:', videoUrl);
+                    break;
+                  }
+                }
+              }
+              
+              if (!videoUrl && yunData.video_info) {
+                videoUrl = yunData.video_info.play_url || yunData.video_info.url;
+                if (videoUrl) {
+                  console.log('Found video URL in yunData.video_info:', videoUrl);
+                }
+              }
+              
+              if (videoUrl) break;
+            } catch (e) {
+              console.log('Failed to parse yunData:', e);
+            }
           }
+        }
+      }
+      
+      // Method 3: Enhanced direct URL extraction
+      if (!videoUrl) {
+        console.log('Searching for direct MP4 URLs in HTML...');
+        
+        // More comprehensive MP4 URL patterns
+        const mp4Patterns = [
+          /https?:\/\/[a-zA-Z0-9.-]+\.terabox[^"'\s]*\.mp4[^"'\s]*/g,
+          /https?:\/\/[a-zA-Z0-9.-]+\.dubox[^"'\s]*\.mp4[^"'\s]*/g,
+          /https?:\/\/[a-zA-Z0-9.-]+\.baidupcs[^"'\s]*\.mp4[^"'\s]*/g,
+          /https?:\/\/[^"'\s]+\.mp4(?:\?[^"'\s]*)?/g,
+        ];
+        
+        for (const pattern of mp4Patterns) {
+          const matches = [...html.matchAll(pattern)];
+          console.log(`Pattern found ${matches.length} matches`);
+          
+          for (const match of matches) {
+            const candidateUrl = match[0];
+            
+            // Enhanced validation
+            if (candidateUrl.length > 50 && 
+                !candidateUrl.includes('placeholder') && 
+                !candidateUrl.includes('sample') &&
+                !candidateUrl.includes('preview') &&
+                (candidateUrl.includes('terabox') || 
+                 candidateUrl.includes('dubox') || 
+                 candidateUrl.includes('baidupcs') ||
+                 candidateUrl.includes('cdn'))) {
+              
+              videoUrl = candidateUrl;
+              console.log('Found valid MP4 URL:', videoUrl);
+              break;
+            }
+          }
+          
+          if (videoUrl) break;
         }
       }
       
