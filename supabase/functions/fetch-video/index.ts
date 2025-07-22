@@ -254,7 +254,7 @@ const extractors = {
 };
 
 function detectPlatform(url: string): string {
-  if (url.includes('terabox')) return 'terabox';
+  if (url.includes('terabox') || url.includes('1024terabox')) return 'terabox';
   if (url.includes('instagram')) return 'instagram';
   if (url.includes('facebook')) return 'facebook';
   if (url.includes('tiktok')) return 'tiktok';
