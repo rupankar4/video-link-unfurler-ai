@@ -91,6 +91,11 @@ export function VideoDownloader() {
       }
 
       const response = data as VideoDetails;
+      
+      // Debug logging
+      console.log('Edge Function Response:', response);
+      console.log('Video URL found:', response.videoUrl);
+      console.log('Success:', response.success);
 
       setVideoDetails(response);
       setProgress(100);
