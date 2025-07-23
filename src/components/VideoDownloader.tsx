@@ -22,6 +22,7 @@ export function VideoDownloader() {
   const [videoDetails, setVideoDetails] = useState<VideoDetails | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const { toast } = useToast();
 
   const platformColors: Record<string, string> = {
@@ -120,27 +121,114 @@ export function VideoDownloader() {
   };
 
   const handleDownload = async () => {
-    if (videoDetails?.videoUrl) {
-      try {
-        // Create a temporary link element for download
+    if (!videoDetails?.videoUrl) {
+      toast({
+        title: "Error",
+        description: "No video URL available for download",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      setDownloadProgress(0);
+      
+      // Clean the filename
+      const cleanTitle = videoDetails.title?.replace(/[^\w\s.-]/g, '').replace(/\s+/g, '_') || 'video';
+      const filename = cleanTitle.endsWith('.mp4') ? cleanTitle : `${cleanTitle}.mp4`;
+      
+      // For direct MP4 links, try direct download first
+      if (videoDetails.videoUrl.includes('.mp4') || videoDetails.videoUrl.includes('stream')) {
         const link = document.createElement('a');
         link.href = videoDetails.videoUrl;
-        link.download = videoDetails.title || 'video.mp4';
+        link.download = filename;
         link.target = '_blank';
+        link.rel = 'noopener noreferrer';
         
-        // Trigger download
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         
+        setDownloadProgress(100);
         toast({
           title: "Download Started",
-          description: "Your video download has begun",
+          description: "Your video download has begun successfully!",
         });
-      } catch (error) {
+        return;
+      }
+
+      // For URLs that need fetch (with progress tracking)
+      const response = await fetch(videoDetails.videoUrl, {
+        mode: 'cors',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://www.terabox.com/',
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const contentLength = response.headers.get('content-length');
+      const total = contentLength ? parseInt(contentLength, 10) : 0;
+      let loaded = 0;
+
+      const reader = response.body?.getReader();
+      const chunks: Uint8Array[] = [];
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          chunks.push(value);
+          loaded += value.length;
+          
+          if (total > 0) {
+            setDownloadProgress(Math.round((loaded / total) * 100));
+          }
+        }
+      }
+
+      // Create blob and download
+      const blob = new Blob(chunks, { type: 'video/mp4' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setDownloadProgress(100);
+      toast({
+        title: "Success!",
+        description: "Video downloaded successfully!",
+      });
+      
+    } catch (error) {
+      console.error('Download failed:', error);
+      setDownloadProgress(0);
+      
+      toast({
+        title: "Download Method 1 Failed",
+        description: "Trying alternative download method...",
+        variant: "destructive"
+      });
+      
+      // Fallback: open in new tab
+      try {
+        window.open(videoDetails.videoUrl, '_blank', 'noopener,noreferrer');
         toast({
-          title: "Download Failed",
-          description: "Unable to download the video. You can try opening the video URL directly.",
+          title: "Fallback Used",
+          description: "Video opened in new tab. Right-click to save.",
+        });
+      } catch (fallbackError) {
+        toast({
+          title: "All Download Methods Failed",
+          description: "Please try copying the video URL and downloading manually.",
           variant: "destructive"
         });
       }
@@ -256,58 +344,114 @@ export function VideoDownloader() {
 
                     <div className="relative overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800">
                       {videoDetails.videoUrl ? (
-                        <video 
-                          controls 
-                          autoPlay={false}
-                          width="100%"
-                          className="w-full h-auto max-h-96 rounded-lg"
-                          poster={videoDetails.thumbnail}
-                          preload="metadata"
-                          onError={(e) => {
-                            console.error('Video failed to load:', videoDetails.videoUrl);
-                            toast({
-                              title: "Video Load Error",
-                              description: "Unable to preview video, but download should still work",
-                              variant: "destructive"
-                            });
-                          }}
-                        >
-                          <source src={videoDetails.videoUrl} type="video/mp4" />
-                          Your browser does not support the video tag.
-                        </video>
+                        <div className="space-y-3">
+                          <video 
+                            controls 
+                            autoPlay={false}
+                            width="100%"
+                            className="w-full h-auto max-h-96 rounded-lg"
+                            poster={videoDetails.thumbnail}
+                            preload="metadata"
+                            crossOrigin="anonymous"
+                            onError={(e) => {
+                              console.error('Video failed to load:', videoDetails.videoUrl);
+                              console.error('Video load error details:', e);
+                              toast({
+                                title: "Video Preview Failed",
+                                description: "Can't preview video, but download should work",
+                                variant: "destructive"
+                              });
+                            }}
+                          >
+                            <source src={videoDetails.videoUrl} type="video/mp4" />
+                            Your browser does not support the video tag.
+                          </video>
+                          
+                          {/* Debug info */}
+                          <div className="p-3 bg-muted rounded text-xs space-y-2">
+                            <div>
+                              <strong>Video URL:</strong> 
+                              <div className="font-mono text-xs break-all mt-1">
+                                {videoDetails.videoUrl.substring(0, 150)}...
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <a 
+                                href={videoDetails.videoUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-primary hover:underline text-xs"
+                              >
+                                Test direct link →
+                              </a>
+                              <button
+                                onClick={() => navigator.clipboard.writeText(videoDetails.videoUrl || '')}
+                                className="text-primary hover:underline text-xs"
+                              >
+                                Copy URL
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       ) : (
                         <div className="w-full h-48 flex flex-col items-center justify-center">
                           <img
-                            src={videoDetails.thumbnail || 'https://via.placeholder.com/400x300/6366f1/white?text=Video+Preview'}
+                            src={videoDetails.thumbnail || 'https://via.placeholder.com/400x300/ef4444/white?text=Video+URL+Not+Found'}
                             alt="Video thumbnail"
-                            className="w-full h-32 object-cover rounded mb-2"
+                            className="w-full h-32 object-cover rounded mb-4"
                             onError={(e) => {
-                              e.currentTarget.src = 'https://via.placeholder.com/400x300/6366f1/white?text=Video+Preview';
+                              e.currentTarget.src = 'https://via.placeholder.com/400x300/ef4444/white?text=Video+URL+Not+Found';
                             }}
                           />
-                          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                            <Play className="w-4 h-4" />
-                            <span>Preview not available - Direct download available</span>
+                          <div className="text-center space-y-2">
+                            <div className="flex items-center justify-center gap-2 text-sm text-destructive">
+                              <AlertCircle className="w-4 h-4" />
+                              <span>Video URL extraction failed</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground max-w-sm">
+                              The TeraBox page structure may have changed, or the video requires JavaScript execution to load the URL.
+                            </p>
                           </div>
                         </div>
                       )}
                     </div>
 
-                    <div className="flex gap-3">
-                      <Button
-                        onClick={handleDownload}
-                        className="flex-1 bg-gradient-accent hover:opacity-90 transition-opacity"
-                      >
-                        <Download className="w-4 h-4 mr-2" />
-                        Download Video
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => setVideoDetails(null)}
-                        className="border-border/50"
-                      >
-                        Clear
-                      </Button>
+                    <div className="space-y-3">
+                      {downloadProgress > 0 && downloadProgress < 100 && (
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span>Downloading...</span>
+                            <span>{downloadProgress}%</span>
+                          </div>
+                          <Progress value={downloadProgress} className="w-full" />
+                        </div>
+                      )}
+                      
+                      <div className="flex gap-3">
+                        <Button
+                          onClick={handleDownload}
+                          disabled={!videoDetails.videoUrl || (downloadProgress > 0 && downloadProgress < 100)}
+                          className="flex-1 bg-gradient-accent hover:opacity-90 transition-opacity disabled:opacity-50"
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          {downloadProgress > 0 && downloadProgress < 100 
+                            ? `Downloading... ${downloadProgress}%` 
+                            : videoDetails.videoUrl 
+                              ? 'Download Video' 
+                              : 'No Video URL Available'
+                          }
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setVideoDetails(null);
+                            setDownloadProgress(0);
+                          }}
+                          className="border-border/50"
+                        >
+                          Clear
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ) : (
