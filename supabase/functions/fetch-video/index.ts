@@ -17,105 +17,75 @@ const extractors = {
       
       const response = await fetch(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.5',
-          'Referer': 'https://www.terabox.com/',
+          'Accept-Encoding': 'gzip, deflate',
+          'DNT': '1',
           'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1'
         }
       });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       
       const html = await response.text();
       console.log('HTML response length:', html.length);
       
-      // Extract title and clean it
-      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-      let title = titleMatch?.[1]?.trim().replace(/&amp;/g, '&') || 'TeraBox Video';
-      title = title.replace(/\s*-\s*Share Files Online.*$/i, '').trim();
+      // Method 1: Look for window.pvda JavaScript variable (PRIMARY METHOD)
+      const pvdaMatch = html.match(/window\.pvda\s*=\s*({.*?});/);
       
       let videoUrl = null;
-      let thumbnail = null;
+      let title = 'TeraBox Video';
+      let thumbnail = 'https://via.placeholder.com/400x300/6366f1/white?text=TeraBox+Video';
       
-      // Enhanced script parsing with more comprehensive patterns
-      const scriptMatches = html.match(/<script[^>]*>(.*?)<\/script>/gis);
-      if (scriptMatches) {
-        console.log(`Found ${scriptMatches.length} script tags`);
-        
-        for (let i = 0; i < scriptMatches.length; i++) {
-          const script = scriptMatches[i];
-          const scriptContent = script.replace(/<\/?script[^>]*>/gi, '');
+      if (pvdaMatch) {
+        try {
+          console.log('Found window.pvda data');
+          const videoDataStr = pvdaMatch[1];
+          const videoData = JSON.parse(videoDataStr);
           
-          // Log scripts that might contain video data
-          if (scriptContent.includes('videoInfo') || 
-              scriptContent.includes('playUrl') ||
-              scriptContent.includes('dlink') ||
-              scriptContent.includes('file_list') ||
-              scriptContent.includes('.mp4')) {
-            console.log(`Analyzing script ${i + 1}: Contains potential video data`);
+          console.log('Parsed video data keys:', Object.keys(videoData));
+          
+          // Extract video URL from resolutions (highest quality)
+          if (videoData.resolutions && Array.isArray(videoData.resolutions) && videoData.resolutions.length > 0) {
+            const highestQuality = videoData.resolutions[videoData.resolutions.length - 1];
+            videoUrl = highestQuality.url || highestQuality.download_link;
+            console.log('Found video URL from resolutions:', videoUrl);
           }
           
-          // Enhanced pattern matching
-          const videoPatterns = [
-            // Direct playUrl patterns
-            /"playUrl"\s*:\s*"([^"]+)"/g,
-            /"play_url"\s*:\s*"([^"]+)"/g,
-            
-            // Download link patterns
-            /"dlink"\s*:\s*"([^"]+)"/g,
-            /"download_url"\s*:\s*"([^"]+)"/g,
-            /"real_link"\s*:\s*"([^"]+)"/g,
-            
-            // Generic URL patterns
-            /"url"\s*:\s*"(https?:\/\/[^"]*\.mp4[^"]*)"/g,
-            /"src"\s*:\s*"(https?:\/\/[^"]*\.mp4[^"]*)"/g,
-            
-            // TeraBox specific patterns
-            /"video_url"\s*:\s*"([^"]+)"/g,
-            /"stream_url"\s*:\s*"([^"]+)"/g,
-            
-            // CDN patterns
-            /https?:\/\/[a-zA-Z0-9.-]+\.terabox[^"'\s]*\.mp4[^"'\s]*/g,
-            /https?:\/\/[a-zA-Z0-9.-]+\.dubox[^"'\s]*\.mp4[^"'\s]*/g,
-            /https?:\/\/[a-zA-Z0-9.-]+\.baidupcs[^"'\s]*\.mp4[^"'\s]*/g,
-          ];
-          
-          for (const pattern of videoPatterns) {
-            const matches = [...scriptContent.matchAll(pattern)];
-            for (const match of matches) {
-              let candidateUrl = match[1];
-              
-              // Clean up the URL
-              if (candidateUrl) {
-                candidateUrl = candidateUrl.replace(/\\u0026/g, '&').replace(/\\"/g, '"');
-                candidateUrl = decodeURIComponent(candidateUrl);
-                
-                // Validate it's a proper video URL
-                if (candidateUrl.includes('.mp4') && 
-                    candidateUrl.startsWith('http') &&
-                    candidateUrl.length > 30 &&
-                    !candidateUrl.includes('placeholder')) {
-                  
-                  videoUrl = candidateUrl;
-                  console.log('Found video URL with pattern:', pattern.source.slice(0, 50) + '...');
-                  console.log('Video URL:', videoUrl);
-                  break;
-                }
-              }
-            }
-            if (videoUrl) break;
+          // Extract title
+          if (videoData.title) {
+            title = videoData.title;
+          } else if (videoData.filename) {
+            title = videoData.filename;
+          } else if (videoData.server_filename) {
+            title = videoData.server_filename;
           }
           
-          if (videoUrl) break;
+          // Extract thumbnail
+          if (videoData.thumbnail) {
+            thumbnail = videoData.thumbnail;
+          } else if (videoData.poster) {
+            thumbnail = videoData.poster;
+          } else if (videoData.thumbs && videoData.thumbs.length > 0) {
+            thumbnail = videoData.thumbs[0];
+          }
+          
+        } catch (parseError) {
+          console.error('Failed to parse window.pvda data:', parseError);
         }
       }
       
-      // Method 2: Enhanced yunData parsing
+      // Method 2: Look for yunData if window.pvda didn't work
       if (!videoUrl) {
+        console.log('window.pvda not found, trying yunData approach');
+        
         const yunDataPatterns = [
-          /yunData\s*=\s*(\{.*?\})/s,
-          /window\.yunData\s*=\s*(\{.*?\})/s,
-          /var\s+yunData\s*=\s*(\{.*?\})/s,
+          /yunData\s*=\s*({.*?});/s,
+          /window\.yunData\s*=\s*({.*?});/s,
+          /var\s+yunData\s*=\s*({.*?});/s,
         ];
         
         for (const pattern of yunDataPatterns) {
@@ -125,21 +95,22 @@ const extractors = {
               const yunData = JSON.parse(match[1]);
               console.log('Found yunData object');
               
-              // Look for video URLs in various places in yunData
+              // Look for video URLs in file_list with resolutions
               if (yunData.file_list && Array.isArray(yunData.file_list)) {
                 for (const file of yunData.file_list) {
-                  if (file.dlink || file.download_url || file.real_link) {
-                    videoUrl = file.dlink || file.download_url || file.real_link;
-                    console.log('Found video URL in yunData.file_list:', videoUrl);
+                  // Check for resolutions array
+                  if (file.resolutions && Array.isArray(file.resolutions) && file.resolutions.length > 0) {
+                    const highestRes = file.resolutions[file.resolutions.length - 1];
+                    videoUrl = highestRes.url || highestRes.download_link;
+                    console.log('Found video URL in yunData resolutions:', videoUrl);
                     break;
                   }
-                }
-              }
-              
-              if (!videoUrl && yunData.video_info) {
-                videoUrl = yunData.video_info.play_url || yunData.video_info.url;
-                if (videoUrl) {
-                  console.log('Found video URL in yunData.video_info:', videoUrl);
+                  // Fallback to direct links
+                  if (file.dlink || file.download_url || file.real_link) {
+                    videoUrl = file.dlink || file.download_url || file.real_link;
+                    console.log('Found video URL in yunData file_list:', videoUrl);
+                    break;
+                  }
                 }
               }
               
@@ -151,66 +122,64 @@ const extractors = {
         }
       }
       
-      // Method 3: Enhanced direct URL extraction
+      // Method 3: Extract title from HTML if not found in JS data
+      if (title === 'TeraBox Video') {
+        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        if (titleMatch && titleMatch[1]) {
+          title = titleMatch[1].trim()
+            .replace(/&amp;/g, '&')
+            .replace(/\s*-\s*Share Files Online.*$/i, '')
+            .trim();
+        }
+      }
+      
+      // Method 4: Fallback extraction methods for legacy TeraBox pages
       if (!videoUrl) {
-        console.log('Searching for direct MP4 URLs in HTML...');
+        console.log('Trying fallback extraction methods');
         
-        // More comprehensive MP4 URL patterns
-        const mp4Patterns = [
-          /https?:\/\/[a-zA-Z0-9.-]+\.terabox[^"'\s]*\.mp4[^"'\s]*/g,
-          /https?:\/\/[a-zA-Z0-9.-]+\.dubox[^"'\s]*\.mp4[^"'\s]*/g,
-          /https?:\/\/[a-zA-Z0-9.-]+\.baidupcs[^"'\s]*\.mp4[^"'\s]*/g,
-          /https?:\/\/[^"'\s]+\.mp4(?:\?[^"'\s]*)?/g,
-        ];
-        
-        for (const pattern of mp4Patterns) {
-          const matches = [...html.matchAll(pattern)];
-          console.log(`Pattern found ${matches.length} matches`);
-          
-          for (const match of matches) {
-            const candidateUrl = match[0];
+        // Look for direct MP4 URLs in script tags
+        const scriptMatches = html.match(/<script[^>]*>(.*?)<\/script>/gis);
+        if (scriptMatches) {
+          for (const script of scriptMatches) {
+            const scriptContent = script.replace(/<\/?script[^>]*>/gi, '');
             
-            // Enhanced validation
-            if (candidateUrl.length > 50 && 
-                !candidateUrl.includes('placeholder') && 
-                !candidateUrl.includes('sample') &&
-                !candidateUrl.includes('preview') &&
-                (candidateUrl.includes('terabox') || 
-                 candidateUrl.includes('dubox') || 
-                 candidateUrl.includes('baidupcs') ||
-                 candidateUrl.includes('cdn'))) {
-              
-              videoUrl = candidateUrl;
-              console.log('Found valid MP4 URL:', videoUrl);
-              break;
+            // Enhanced video URL patterns
+            const videoPatterns = [
+              /"dlink"\s*:\s*"([^"]+)"/g,
+              /"download_url"\s*:\s*"([^"]+)"/g,
+              /"play_url"\s*:\s*"([^"]+)"/g,
+              /"real_link"\s*:\s*"([^"]+)"/g,
+              /"url"\s*:\s*"(https?:\/\/[^"]*\.mp4[^"]*)"/g,
+            ];
+            
+            for (const pattern of videoPatterns) {
+              const matches = [...scriptContent.matchAll(pattern)];
+              for (const match of matches) {
+                let candidateUrl = match[1];
+                
+                if (candidateUrl) {
+                  candidateUrl = candidateUrl.replace(/\\u0026/g, '&').replace(/\\"/g, '"');
+                  candidateUrl = decodeURIComponent(candidateUrl);
+                  
+                  if (candidateUrl.includes('.mp4') && 
+                      candidateUrl.startsWith('http') &&
+                      candidateUrl.length > 30 &&
+                      !candidateUrl.includes('placeholder')) {
+                    
+                    videoUrl = candidateUrl;
+                    console.log('Found video URL with fallback method:', videoUrl);
+                    break;
+                  }
+                }
+              }
+              if (videoUrl) break;
             }
+            if (videoUrl) break;
           }
-          
-          if (videoUrl) break;
         }
       }
       
-      // Extract thumbnail
-      const thumbPatterns = [
-        /thumb_url["']?\s*:\s*["']([^"']+)["']/i,
-        /"thumbnail"\s*:\s*"([^"]+)"/i,
-        /"cover"\s*:\s*"([^"]+)"/i
-      ];
-      
-      for (const pattern of thumbPatterns) {
-        const match = html.match(pattern);
-        if (match && match[1]) {
-          thumbnail = match[1];
-          break;
-        }
-      }
-      
-      // Fallback thumbnail
-      if (!thumbnail) {
-        thumbnail = 'https://via.placeholder.com/400x300/6366f1/white?text=TeraBox+Video';
-      }
-      
-      console.log('Extraction result:', { videoUrl, title, thumbnail });
+      console.log('Final extraction result:', { videoUrl, title, thumbnail });
       
       return {
         videoUrl: videoUrl,
