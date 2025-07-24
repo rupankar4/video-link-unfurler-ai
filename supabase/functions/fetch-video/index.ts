@@ -41,19 +41,29 @@ const extractors = {
       
       // Method 1: Look for window._pvda (NEW PATTERN)
       const _pvdaMatch = html.match(/window\._pvda\s*=\s*({.*?});/s);
+      console.log('Looking for window._pvda pattern...');
+      console.log('_pvdaMatch found:', !!_pvdaMatch);
+      
       if (_pvdaMatch) {
         try {
           console.log('Found window._pvda data');
           const videoDataStr = _pvdaMatch[1];
-          const videoData = JSON.parse(videoDataStr);
+          console.log('Raw _pvda string length:', videoDataStr.length);
+          console.log('First 200 chars of _pvda:', videoDataStr.substring(0, 200));
           
+          const videoData = JSON.parse(videoDataStr);
           console.log('Parsed _pvda data keys:', Object.keys(videoData));
           
           // Extract video URL from resolutions (highest quality)
           if (videoData.resolutions && Array.isArray(videoData.resolutions) && videoData.resolutions.length > 0) {
+            console.log('Found resolutions array with length:', videoData.resolutions.length);
+            console.log('All resolutions:', videoData.resolutions);
+            
             const highestQuality = videoData.resolutions[videoData.resolutions.length - 1];
+            console.log('Highest quality resolution object:', highestQuality);
+            
             videoUrl = highestQuality.url || highestQuality.download_link;
-            console.log('Found video URL from _pvda resolutions:', videoUrl);
+            console.log('Extracted video URL from _pvda resolutions:', videoUrl);
           }
           
           // Extract metadata
@@ -101,7 +111,82 @@ const extractors = {
         }
       }
       
-      // Method 3: Look for yunData approach
+      // Method 3: Look for API endpoints and AJAX patterns
+      if (!videoUrl) {
+        console.log('Trying to find API endpoints and AJAX patterns');
+        
+        // Look for share config or file info API patterns
+        const apiPatterns = [
+          /shareconfig\?surl=([^"&]+)/gi,
+          /file\/info\?url=([^"&]+)/gi,
+          /getfileinfo\?([^"&]+)/gi,
+          /"surl"\s*:\s*"([^"]+)"/gi,
+          /"fs_id"\s*:\s*(\d+)/gi,
+        ];
+        
+        let shareParams = {};
+        
+        for (const pattern of apiPatterns) {
+          const matches = [...html.matchAll(pattern)];
+          for (const match of matches) {
+            console.log('Found API pattern match:', match[0]);
+            
+            if (match[0].includes('surl')) {
+              shareParams['surl'] = match[1];
+            }
+            if (match[0].includes('fs_id')) {
+              shareParams['fs_id'] = match[1];
+            }
+          }
+        }
+        
+        console.log('Share parameters found:', shareParams);
+        
+        // Try to construct API URLs if we have parameters
+        if (shareParams['surl']) {
+          const apiUrls = [
+            `https://www.terabox.com/share/download?surl=${shareParams['surl']}`,
+            `https://1024terabox.com/share/download?surl=${shareParams['surl']}`,
+            `https://www.terabox.com/api/download?surl=${shareParams['surl']}`,
+          ];
+          
+          console.log('Attempting API calls to:', apiUrls);
+          
+          for (const apiUrl of apiUrls) {
+            try {
+              console.log('Trying API call to:', apiUrl);
+              const apiResponse = await fetch(apiUrl, {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                  'Referer': url,
+                  'Accept': 'application/json, text/plain, */*',
+                }
+              });
+              
+              if (apiResponse.ok) {
+                const apiData = await apiResponse.json();
+                console.log('API response received:', Object.keys(apiData));
+                
+                if (apiData.list && Array.isArray(apiData.list)) {
+                  for (const file of apiData.list) {
+                    if (file.dlink || file.download_url) {
+                      videoUrl = file.dlink || file.download_url;
+                      console.log('Found video URL from API:', videoUrl);
+                      break;
+                    }
+                  }
+                }
+                
+                if (videoUrl) break;
+              }
+            } catch (apiError) {
+              console.log('API call failed:', apiError.message);
+            }
+          }
+        }
+      }
+      
+      // Method 4: Look for yunData approach
       if (!videoUrl) {
         console.log('Primary methods failed, trying yunData approach');
         
@@ -116,13 +201,17 @@ const extractors = {
           if (match) {
             try {
               const yunData = JSON.parse(match[1]);
-              console.log('Found yunData object');
+              console.log('Found yunData object with keys:', Object.keys(yunData));
               
               // Look for video URLs in file_list with resolutions
               if (yunData.file_list && Array.isArray(yunData.file_list)) {
+                console.log('yunData file_list length:', yunData.file_list.length);
                 for (const file of yunData.file_list) {
+                  console.log('Processing file:', Object.keys(file));
+                  
                   // Check for resolutions array
                   if (file.resolutions && Array.isArray(file.resolutions) && file.resolutions.length > 0) {
+                    console.log('Found resolutions in yunData:', file.resolutions.length);
                     const highestRes = file.resolutions[file.resolutions.length - 1];
                     videoUrl = highestRes.url || highestRes.download_link;
                     console.log('Found video URL in yunData resolutions:', videoUrl);
@@ -145,14 +234,25 @@ const extractors = {
         }
       }
       
-      // Method 4: Extract title from HTML if not found in JS data
+      // Method 5: Extract title from HTML if not found in JS data
       if (title === 'TeraBox Video') {
-        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-        if (titleMatch && titleMatch[1]) {
-          title = titleMatch[1].trim()
-            .replace(/&amp;/g, '&')
-            .replace(/\s*-\s*Share Files Online.*$/i, '')
-            .trim();
+        const titlePatterns = [
+          /<title[^>]*>([^<]+)<\/title>/i,
+          /"title"\s*:\s*"([^"]+)"/i,
+          /"filename"\s*:\s*"([^"]+)"/i,
+          /"server_filename"\s*:\s*"([^"]+)"/i,
+        ];
+        
+        for (const pattern of titlePatterns) {
+          const titleMatch = html.match(pattern);
+          if (titleMatch && titleMatch[1]) {
+            title = titleMatch[1].trim()
+              .replace(/&amp;/g, '&')
+              .replace(/\s*-\s*Share Files Online.*$/i, '')
+              .trim();
+            console.log('Extracted title:', title);
+            break;
+          }
         }
       }
       
@@ -249,9 +349,19 @@ const extractors = {
       }
       
       // Method 7: Final validation - reject JS files and static assets
-      if (videoUrl && (videoUrl.includes('.js') || videoUrl.includes('.css') || videoUrl.includes('static/node-static'))) {
-        console.log('Rejecting invalid URL (JS/CSS/static file):', videoUrl);
-        videoUrl = null;
+      if (videoUrl) {
+        console.log('Final URL validation check...');
+        console.log('Current videoUrl:', videoUrl);
+        console.log('URL includes .js:', videoUrl.includes('.js'));
+        console.log('URL includes .css:', videoUrl.includes('.css'));
+        console.log('URL includes static/node-static:', videoUrl.includes('static/node-static'));
+        
+        if (videoUrl.includes('.js') || videoUrl.includes('.css') || videoUrl.includes('static/node-static')) {
+          console.log('REJECTING invalid URL (JS/CSS/static file):', videoUrl);
+          videoUrl = null;
+        } else {
+          console.log('URL passed validation checks');
+        }
       }
       
       console.log('Final extraction result:', { videoUrl, title, thumbnail });
@@ -345,9 +455,12 @@ Deno.serve(async (req) => {
     const videoData = await extractor(url);
 
     const result: VideoDetails = {
-      success: true,
+      success: videoData.videoUrl ? true : false,
       platform,
-      ...videoData
+      videoUrl: videoData.videoUrl || undefined,
+      title: videoData.title,
+      thumbnail: videoData.thumbnail,
+      error: videoData.videoUrl ? undefined : 'No valid video URL found'
     };
 
     console.log('Extraction successful:', result);
