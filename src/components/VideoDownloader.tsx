@@ -130,17 +130,44 @@ export function VideoDownloader() {
       return;
     }
 
+    // Validate video URL format
+    const videoUrl = videoDetails.videoUrl;
+    const isValidVideoUrl = videoUrl.includes('.mp4') || videoUrl.includes('.webm') || videoUrl.includes('.m3u8') || videoUrl.includes('/video/') || videoUrl.includes('/stream/');
+    
+    if (!isValidVideoUrl || videoUrl.includes('.js') || videoUrl.includes('.css')) {
+      toast({
+        title: "Invalid Video URL",
+        description: "Video might be private or expired. Please re-check the link.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     try {
       setDownloadProgress(0);
       
       // Clean the filename
       const cleanTitle = videoDetails.title?.replace(/[^\w\s.-]/g, '').replace(/\s+/g, '_') || 'video';
-      const filename = cleanTitle.endsWith('.mp4') ? cleanTitle : `${cleanTitle}.mp4`;
+      const fileExtension = videoUrl.includes('.webm') ? '.webm' : videoUrl.includes('.m3u8') ? '.m3u8' : '.mp4';
+      const filename = cleanTitle.endsWith(fileExtension) ? cleanTitle : `${cleanTitle}${fileExtension}`;
       
-      // For direct MP4 links, try direct download first
-      if (videoDetails.videoUrl.includes('.mp4') || videoDetails.videoUrl.includes('stream')) {
+      // Mobile-friendly download: always open in new tab for mobile
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      if (isMobile) {
+        // Mobile: Open in new tab for user to save manually
+        window.open(videoUrl, '_blank');
+        toast({
+          title: "Video Opened",
+          description: "Video opened in new tab. Long-press to save on mobile.",
+        });
+        return;
+      }
+      
+      // Desktop: Try direct download first
+      if (videoUrl.includes('.mp4') || videoUrl.includes('.webm') || videoUrl.includes('stream')) {
         const link = document.createElement('a');
-        link.href = videoDetails.videoUrl;
+        link.href = videoUrl;
         link.download = filename;
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
@@ -345,27 +372,41 @@ export function VideoDownloader() {
                     <div className="relative overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800">
                       {videoDetails.videoUrl ? (
                         <div className="space-y-3">
-                          <video 
-                            controls 
-                            autoPlay={false}
-                            width="100%"
-                            className="w-full h-auto max-h-96 rounded-lg"
-                            poster={videoDetails.thumbnail}
-                            preload="metadata"
-                            crossOrigin="anonymous"
-                            onError={(e) => {
-                              console.error('Video failed to load:', videoDetails.videoUrl);
-                              console.error('Video load error details:', e);
-                              toast({
-                                title: "Video Preview Failed",
-                                description: "Can't preview video, but download should work",
-                                variant: "destructive"
-                              });
-                            }}
-                          >
-                            <source src={videoDetails.videoUrl} type="video/mp4" />
-                            Your browser does not support the video tag.
-                          </video>
+                          {/* Video URL validation */}
+                          {videoDetails.videoUrl.includes('.js') || videoDetails.videoUrl.includes('.css') ? (
+                            <div className="w-full h-48 flex flex-col items-center justify-center bg-destructive/10 rounded-lg border border-destructive/20">
+                              <AlertCircle className="w-12 h-12 text-destructive mb-4" />
+                              <div className="text-center space-y-2">
+                                <h4 className="font-semibold text-destructive">Invalid Video URL Detected</h4>
+                                <p className="text-sm text-muted-foreground max-w-sm">
+                                  The extracted URL is not a video file. Video might be private or expired. Please re-check the link.
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <video 
+                              controls 
+                              autoPlay={false}
+                              width="100%"
+                              className="w-full h-auto max-h-96 rounded-lg"
+                              poster={videoDetails.thumbnail}
+                              preload="metadata"
+                              crossOrigin="anonymous"
+                              onError={(e) => {
+                                console.error('Video failed to load:', videoDetails.videoUrl);
+                                console.error('Video load error details:', e);
+                                toast({
+                                  title: "Video Preview Failed",
+                                  description: "Can't preview video, but download might still work",
+                                  variant: "destructive"
+                                });
+                              }}
+                            >
+                              <source src={videoDetails.videoUrl} type="video/mp4" />
+                              <source src={videoDetails.videoUrl} type="video/webm" />
+                              Your browser does not support the video tag.
+                            </video>
+                          )}
                           
                           {/* Debug info */}
                           <div className="p-3 bg-muted rounded text-xs space-y-2">
@@ -375,20 +416,39 @@ export function VideoDownloader() {
                                 {videoDetails.videoUrl.substring(0, 150)}...
                               </div>
                             </div>
-                            <div className="flex gap-2">
-                              <a 
-                                href={videoDetails.videoUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-primary hover:underline text-xs"
+                            <div className="flex gap-2 flex-wrap">
+                              <button
+                                onClick={() => window.open(videoDetails.videoUrl, '_blank')}
+                                className="text-primary hover:underline text-xs bg-primary/10 px-2 py-1 rounded"
                               >
-                                Test direct link →
-                              </a>
+                                🔗 Test Link
+                              </button>
                               <button
                                 onClick={() => navigator.clipboard.writeText(videoDetails.videoUrl || '')}
-                                className="text-primary hover:underline text-xs"
+                                className="text-primary hover:underline text-xs bg-primary/10 px-2 py-1 rounded"
                               >
-                                Copy URL
+                                📋 Copy URL
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    const response = await fetch(videoDetails.videoUrl, { method: 'HEAD' });
+                                    const contentType = response.headers.get('content-type');
+                                    toast({
+                                      title: "MIME Type Check",
+                                      description: `Content-Type: ${contentType || 'Unknown'}`,
+                                    });
+                                  } catch (error) {
+                                    toast({
+                                      title: "MIME Check Failed",
+                                      description: "Could not check file type",
+                                      variant: "destructive"
+                                    });
+                                  }
+                                }}
+                                className="text-primary hover:underline text-xs bg-primary/10 px-2 py-1 rounded"
+                              >
+                                🔍 Check MIME
                               </button>
                             </div>
                           </div>
@@ -430,15 +490,17 @@ export function VideoDownloader() {
                       <div className="flex gap-3">
                         <Button
                           onClick={handleDownload}
-                          disabled={!videoDetails.videoUrl || (downloadProgress > 0 && downloadProgress < 100)}
+                          disabled={!videoDetails.videoUrl || (downloadProgress > 0 && downloadProgress < 100) || videoDetails.videoUrl.includes('.js') || videoDetails.videoUrl.includes('.css')}
                           className="flex-1 bg-gradient-accent hover:opacity-90 transition-opacity disabled:opacity-50"
                         >
                           <Download className="w-4 h-4 mr-2" />
                           {downloadProgress > 0 && downloadProgress < 100 
                             ? `Downloading... ${downloadProgress}%` 
-                            : videoDetails.videoUrl 
-                              ? 'Download Video' 
-                              : 'No Video URL Available'
+                            : !videoDetails.videoUrl
+                              ? 'No Video URL Available'
+                              : videoDetails.videoUrl.includes('.js') || videoDetails.videoUrl.includes('.css')
+                                ? 'Invalid Video URL'
+                                : 'Download Video'
                           }
                         </Button>
                         <Button

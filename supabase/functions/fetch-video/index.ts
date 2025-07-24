@@ -214,28 +214,44 @@ const extractors = {
         }
       }
       
-      // Method 6: Direct regex search in HTML for any video-like URLs
+      // Method 6: Direct regex search in HTML for proper video URLs only
       if (!videoUrl) {
         console.log('Trying direct HTML regex search for video URLs');
         const directUrlPatterns = [
-          /https?:\/\/[^"\s]*\.mp4[^"\s]*/gi,
-          /https?:\/\/[^"\s]*stream[^"\s]*/gi,
-          /https?:\/\/[^"\s]*video[^"\s]*\.mp4/gi,
+          // Look for direct MP4, WebM, M3U8 URLs
+          /https?:\/\/[^"\s]*\.mp4(?:\?[^"\s]*)?/gi,
+          /https?:\/\/[^"\s]*\.webm(?:\?[^"\s]*)?/gi,
+          /https?:\/\/[^"\s]*\.m3u8(?:\?[^"\s]*)?/gi,
+          // Look for streaming URLs with video indicators
+          /https?:\/\/[^"\s]*\/video\/[^"\s]*\.mp4/gi,
+          /https?:\/\/[^"\s]*\/stream\/[^"\s]*\.mp4/gi,
         ];
         
         for (const pattern of directUrlPatterns) {
           const matches = html.match(pattern);
           if (matches && matches.length > 0) {
             for (const match of matches) {
-              if (match.length > 50 && !match.includes('placeholder')) {
+              // Validate that this is actually a video URL, not a JS file
+              if (match.length > 50 && 
+                  !match.includes('placeholder') && 
+                  !match.includes('.js') && 
+                  !match.includes('.css') &&
+                  !match.includes('static') &&
+                  (match.includes('.mp4') || match.includes('.webm') || match.includes('.m3u8') || match.includes('/video/') || match.includes('/stream/'))) {
                 videoUrl = match;
-                console.log('Found video URL with direct regex search:', videoUrl);
+                console.log('Found valid video URL with direct regex search:', videoUrl);
                 break;
               }
             }
             if (videoUrl) break;
           }
         }
+      }
+      
+      // Method 7: Final validation - reject JS files and static assets
+      if (videoUrl && (videoUrl.includes('.js') || videoUrl.includes('.css') || videoUrl.includes('static/node-static'))) {
+        console.log('Rejecting invalid URL (JS/CSS/static file):', videoUrl);
+        videoUrl = null;
       }
       
       console.log('Final extraction result:', { videoUrl, title, thumbnail });
